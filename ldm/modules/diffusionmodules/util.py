@@ -205,7 +205,7 @@ def normalization(channels):
     :param channels: number of input channels.
     :return: an nn.Module for normalization.
     """
-    return GroupNorm32(32, channels)
+    return _GroupNorm(32, channels) # GroupNorm32(32, channels)
 
 
 # PyTorch 1.7 has SiLU, but we support PyTorch 1.5.
@@ -214,9 +214,73 @@ class SiLU(nn.Module):
         return x * torch.sigmoid(x)
 
 
+# NYI
 class GroupNorm32(nn.GroupNorm):
     def forward(self, x):
         return super().forward(x.float()).type(x.dtype)
+
+
+from functools import reduce
+import operator
+
+
+class GroupNorm(nn.Module):
+    def __init__(self, num_groups, num_channels, eps = 1e-5, affine = True,
+                 device=None, dtype=None):
+        super(GroupNorm, self).__init__()
+        if num_channels % num_groups != 0:
+            raise ValueError('num_channels must be divisible by num_groups')
+
+        self.num_groups = num_groups
+        self.num_channels = num_channels
+        self.eps = eps
+        self.affine = affine
+        if self.affine:
+            self.weight = nn.Parameter(torch.empty(num_channels))
+            self.bias = nn.Parameter(torch.empty(num_channels))
+        else:
+            self.register_parameter('weight', None)
+            self.register_parameter('bias', None)
+
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        if self.affine:
+            self.weight.data.uniform_()
+            self.bias.data.zero_()
+
+    def forward(self, x):
+        N, C, H, W = x.size()
+        G = self.num_groups
+        D = int(C / G)
+        NxG = N * G
+        HxW = reduce(operator.mul, x.shape[2:], 1)
+
+        x = x.view(N, G, -1)
+        mean = x.mean(-1, keepdim=True)
+        var = x.var(-1, keepdim=True)
+
+        x = ((x - mean) / (var + self.eps).sqrt()).view(NxG, D, -1, N)
+        self.weight = nn.Parameter(self.weight.view(NxG, D, -1))
+        self.bias = nn.Parameter(self.bias.view(NxG, D, -1))
+
+        x = self.weight.view(NxG, D, -1).repeat(1, 1, HxW).view(x.size()) * x + self.bias.view(NxG, D, -1).repeat(1, 1, HxW).view(x.size())
+        
+        self.weight = nn.Parameter(self.weight.view(-1))
+        self.bias = nn.Parameter(self.bias.view(-1))
+        
+        x = x.view(N, C, H, W)
+        return x
+
+    def extra_repr(self):
+        return '{num_groups}, {num_channels}, eps={eps}, ' \
+            'affine={affine}'.format(**self.__dict__)
+
+
+class _GroupNorm(GroupNorm):
+    def forward(self, x):
+        return super().forward(x.float()).type(x.dtype)
+
 
 def conv_nd(dims, *args, **kwargs):
     """
