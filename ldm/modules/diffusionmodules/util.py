@@ -260,15 +260,10 @@ class GroupNorm(nn.Module):
         mean = x.mean(-1, keepdim=True)
         var = x.var(-1, keepdim=True)
 
-        x = ((x - mean) / (var + self.eps).sqrt()).view(NxG, D, -1, N)
-        self.weight = nn.Parameter(self.weight.view(NxG, D, -1))
-        self.bias = nn.Parameter(self.bias.view(NxG, D, -1))
+        x = ((x - mean) / (var + self.eps).sqrt()).view(NxG, D, HxW)
 
-        x = self.weight.view(NxG, D, -1).repeat(1, 1, HxW).view(x.size()) * x + self.bias.view(NxG, D, -1).repeat(1, 1, HxW).view(x.size())
-        
-        self.weight = nn.Parameter(self.weight.view(-1))
-        self.bias = nn.Parameter(self.bias.view(-1))
-        
+        x = self.weight.repeat(N).view(NxG, D, 1).repeat(1, 1, HxW) * x + self.bias.repeat(N).view(NxG, D, 1).repeat(1, 1, HxW)
+
         x = x.view(N, C, H, W)
         return x
 
