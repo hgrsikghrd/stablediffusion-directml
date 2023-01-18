@@ -225,7 +225,7 @@ class DDIMSampler(object):
         sqrt_one_minus_alphas = self.model.sqrt_one_minus_alphas_cumprod if use_original_steps else self.ddim_sqrt_one_minus_alphas
         sigmas = self.model.ddim_sigmas_for_original_num_steps if use_original_steps else self.ddim_sigmas
         # select parameters corresponding to the currently considered timestep
-        print(alphas[index].int()) # WHY IT FIXES STUCKING WITHOUT ANY ERROR WHILE DDIM SAMPLING ??????
+        print(alphas[index].int()) # WHY DOES IT FIX STUCKING WITHOUT ANY ERROR WHILE DDIM SAMPLING ??????
         a_t = torch.full((b, 1, 1, 1), alphas[index], device=device)
         a_prev = torch.full((b, 1, 1, 1), alphas_prev[index], device=device)
         sigma_t = torch.full((b, 1, 1, 1), sigmas[index], device=device)
