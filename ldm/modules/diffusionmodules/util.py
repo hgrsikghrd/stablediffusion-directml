@@ -257,11 +257,7 @@ class GroupNorm(nn.Module):
         HxW = reduce(operator.mul, x.shape[2:], 1)
 
         x = x.view(N, G, -1)
-        mean = x.mean(-1, keepdim=True)
-        var = x.var(-1, keepdim=True)
-
-        x = ((x - mean) / (var + self.eps).sqrt()).view(NxG, D, HxW)
-
+        x = ((x - x.mean(-1, keepdim=True)) / (x.var(-1, keepdim=True) + self.eps).sqrt()).view(NxG, D, HxW)
         x = self.weight.repeat(N).view(NxG, D, 1).repeat(1, 1, HxW) * x + self.bias.repeat(N).view(NxG, D, 1).repeat(1, 1, HxW)
 
         x = x.view(N, C, H, W)
