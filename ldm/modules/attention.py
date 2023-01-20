@@ -6,7 +6,7 @@ from torch import nn, einsum
 from einops import rearrange, repeat
 from typing import Optional, Any
 
-from ldm.modules.diffusionmodules.util import checkpoint, GroupNorm
+from ldm.modules.diffusionmodules.util import checkpoint
 
 
 try:
@@ -86,8 +86,7 @@ def zero_module(module):
 
 
 def Normalize(in_channels):
-    # return torch.nn.GroupNorm(num_groups=32, num_channels=in_channels, eps=1e-6, affine=True)
-    return GroupNorm(num_groups=32, num_channels=in_channels, eps=1e-6, affine=True)
+    return torch.nn.GroupNorm(num_groups=32, num_channels=in_channels, eps=1e-6, affine=True)
 
 
 class SpatialSelfAttention(nn.Module):
