@@ -224,31 +224,7 @@ from functools import reduce
 import operator
 
 
-class GroupNorm(nn.Module):
-    def __init__(self, num_groups, num_channels, eps = 1e-5, affine = True,
-                 device=None, dtype=None):
-        super(GroupNorm, self).__init__()
-        if num_channels % num_groups != 0:
-            raise ValueError('num_channels must be divisible by num_groups')
-
-        self.num_groups = num_groups
-        self.num_channels = num_channels
-        self.eps = eps
-        self.affine = affine
-        if self.affine:
-            self.weight = nn.Parameter(torch.empty(num_channels))
-            self.bias = nn.Parameter(torch.empty(num_channels))
-        else:
-            self.register_parameter('weight', None)
-            self.register_parameter('bias', None)
-
-        self.reset_parameters()
-
-    def reset_parameters(self):
-        if self.affine:
-            self.weight.data.uniform_()
-            self.bias.data.zero_()
-
+class GroupNorm(nn.GroupNorm):
     def forward(self, x):
         N, C, H, W = x.size()
         G = self.num_groups
@@ -263,14 +239,98 @@ class GroupNorm(nn.Module):
         x = x.view(N, C, H, W)
         return x
 
-    def extra_repr(self):
-        return '{num_groups}, {num_channels}, eps={eps}, ' \
-            'affine={affine}'.format(**self.__dict__)
-
 
 class _GroupNorm(GroupNorm):
     def forward(self, x):
         return super().forward(x.float()).type(x.dtype)
+
+
+class LayerNorm(nn.LayerNorm):
+    def forward(self, x):
+        if x.device.type == 'privateuseone':
+            dims = [-(i + 1) for i in range(len(self.normalized_shape))]
+            x = (x - x.mean(dim=dims, keepdim=True)) / (x.var(dim=dims, keepdim=True) + self.eps).sqrt()
+            if self.elementwise_affine:
+                x = self.weight * x + self.bias
+            return x
+        else:
+            return super().forward(x)
+
+
+class Linear(nn.Linear):
+    def forward(self, x):
+        self.weight = nn.Parameter(self.weight.type(x.dtype))
+        if self.bias is not None:
+            self.bias = nn.Parameter(self.bias.type(x.dtype))
+        return super().forward(x)
+
+
+class Conv2d(nn.Conv2d):
+    def forward(self, x):
+        self.weight = nn.Parameter(self.weight.type(x.dtype))
+        if self.bias is not None:
+            self.bias = nn.Parameter(self.bias.type(x.dtype))
+        return super().forward(x)
+
+
+_zeros_like = torch.zeros_like
+_cat = torch.cat
+_new_zeros = torch.Tensor.new_zeros
+_new_ones = torch.Tensor.new_ones
+_var = torch.Tensor.var
+_pow = torch.Tensor.pow
+
+
+def new_zeros(self, *arg, dtype=None, device=None, requires_grad=False, layout=torch.strided, pin_memory=False):
+    if self.dtype == torch.float16 and self.device.type == 'privateuseone':
+        return torch.zeros(*arg, requires_grad=requires_grad, layout=layout, pin_memory=pin_memory, dtype=dtype).to(self.device)
+    else:
+        return _new_zeros(self, *arg)
+
+
+def new_ones(self, *arg, dtype=None, device=None, requires_grad=False, layout=torch.strided, pin_memory=False):
+    if self.dtype == torch.float16 and self.device.type == 'privateuseone':
+        return torch.ones(*arg, requires_grad=requires_grad, layout=layout, pin_memory=pin_memory, dtype=dtype).to(self.device)
+    else:
+        return _new_ones(self, *arg)
+
+
+def var(self, *arg, **kwarg):
+    if self.dtype == torch.float16 and self.device.type == 'privateuseone':
+        return _var(self.type(torch.float32), *arg, **kwarg).type(self.dtype)
+    else:
+        return _var(self, *arg, **kwarg)
+
+
+def pow(self, *arg, **kwarg):
+    if self.dtype == torch.float16 and self.device.type == 'privateuseone':
+        return _pow(self.type(torch.float32), *arg, **kwarg).type(self.dtype)
+    else:
+        return _pow(self, *arg, **kwarg)
+
+
+def zeros_like(input, *args, **kwarg):
+    if input.dtype ==  torch.float16 and input.device.type == 'privateuseone':
+        return torch.zeros(input.size(), dtype=input.dtype).to(input.device)
+    else:
+        return _zeros_like(input, *args, **kwarg)
+
+
+def cat(tensors, *arg, **kwarg):
+    return _cat(tuple(map(lambda tensor: tensor.type(torch.float32) if tensor.dtype == torch.float16 and tensor.device.type == 'privateuseone' else tensor, tensors)), *arg, **kwarg)
+
+
+torch.zeros_like = zeros_like
+torch.cat = cat
+torch.Tensor.new_zeros = new_zeros
+torch.Tensor.new_ones = new_ones
+torch.Tensor.var = var
+torch.Tensor.pow = pow
+torch.Tensor.__pow__ = pow
+
+nn.LayerNorm = LayerNorm
+nn.Linear = Linear
+nn.Conv2d = Conv2d
 
 
 def conv_nd(dims, *args, **kwargs):
